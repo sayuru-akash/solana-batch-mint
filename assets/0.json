@@ -1,0 +1,32 @@
+{
+   "name": "__PLACEHOLDER__",
+   "symbol": "",
+   "description": "Celebratory NFT mint by @sayuru-akash //change this to any description you prefer",
+   "seller_fee_basis_points": __PLACEHOLDER__,
+   "image": "image.png",
+   "attributes": [
+     {
+       "trait_type": "__PLACEHOLDER__",
+       "value": "__PLACEHOLDER__"
+     }
+   ],
+   "collection": {
+      "name": "__PLACEHOLDER__",
+      "family": "__PLACEHOLDER__"
+   },
+   "properties": {
+     "files": [
+       {
+         "uri": "image.png",
+         "type": "image/png"
+       }
+     ],
+     "category": "image",
+     "creators": [
+       {
+         "address": "__PLACEHOLDER__",
+         "share": __PLACEHOLDER__
+       }
+     ]
+   }
+ }
