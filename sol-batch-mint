@@ -1,0 +1,587 @@
+#!/usr/bin/env bash
+#######################################################################
+# Candy-Machine NFT Batch Deploy and Mint Script                                         #
+# ------------------------------------------------------------------- #
+# Authors: sayuru-akash
+# Special Thanks: jrod091, blackranger07                              #
+#                                                                     #
+# Description:                                                        #
+# This script sets up a candy machine for batch                       #
+# minting from scratch.                                               #
+#######################################################################
+
+if [ `whoami` = root ]; then # exit if running as root
+   echo "${red}Script cannot be run as root!${normal}"
+   exit 1
+fi
+
+## SET COLORS IF TERMINAL SUPPORTS IT
+if test -t 1; then # if terminal
+   ncolors=$(which tput > /dev/null && tput colors) # supports color
+   if test -n "$ncolors" && test $ncolors -ge 8; then
+      termcols=$(tput cols)
+      bold="$(tput bold)"
+      underline="$(tput smul)"
+      standout="$(tput smso)"
+      normal="$(tput sgr0)"
+      black="$(tput setaf 0)"
+      red="$(tput setaf 1)"
+      green="$(tput setaf 2)"
+      yellow="$(tput setaf 3)"
+      blue="$(tput setaf 4)"
+      magenta="$(tput setaf 5)"
+      cyan="$(tput setaf 6)"
+      white="$(tput setaf 7)"
+      orange="$(tput setaf 166)"
+   fi
+fi
+
+## VARIABLES
+network=''
+pubkey=''
+current_dir=''
+metaplex_dir=''
+assets_dir=''
+js_dir=''
+cm_cli=''
+cmm_dir=''
+env_ex_file=''
+env_file=''
+num_imgs=''
+distro=''
+subcommand=''
+
+## FUNCTIONS
+help_print() { # print help text
+   cat <<EOF
+Usage: sol-batch-mint <command> <options>
+
+Commands:
+   initial_mint   setup candy machine and mint images
+   mint_more      run candy machine to mint more images
+
+Options:
+   -h, --help              print this help message
+
+You can run 'sol-batch-mint <command> -h/--help' to see help for specific command.
+EOF
+}
+
+initial_mint_help_print() { # print help text for 'initial_mint' command
+    cat <<EOF
+Usage: sol-batch-mint initial_mint <options>
+
+Options:
+   -d, --devnet            set 'devnet' as network
+   -h, --help              print command line options
+   -m, --mainnet           set 'mainnet' as network
+   -n, --newwallet         setup new wallet locally
+   -w {ID}, --wallet={ID}  set public wallet key address from Phantom or other source
+EOF
+}
+
+mint_more_help_print() { # print help text for 'initial_mint' command
+    cat <<EOF
+Usage: sol-batch-mint mint_more <options>
+
+Options:
+   -d, --devnet            set 'devnet' as network
+   -h, --help              print command line options
+   -m, --mainnet           set 'mainnet' as network
+EOF
+}
+
+success_print() { # success print
+   echo "${green}${*}${normal}"
+}
+
+warn_print() { # warning print
+   echo "${orange}${*}${normal}"
+}
+
+err_print() { # error print
+   echo "${red}${*}${normal}"
+}
+
+success_printf() { # printf implementation of success print
+   printf "\r\033[K${green}%s\n${normal}" "$*"
+}
+
+warn_printf() { # printf impementation of warning print
+   printf "\r\033[K${orange}%s${normal}" "$*"
+}
+
+err_printf() { # printf impementation of error print
+   printf "\r\033[K${red}%s\n${normal}" "$*"
+}
+
+shutdown() { # reset cursor in case spinner command errors out
+   tput cnorm # reset cursor
+}
+trap shutdown EXIT
+
+cursorBack() { # move cursor back for spinner animation
+   echo -en "\033[$1D"
+}
+
+spinner() { # spiner animation so user doesn't think script is hung
+   local LC_TYPE=C
+   local pid=$!
+   local delay=0.1
+   #local spin='⣾⣽⣻⢿⡿⣟⣯⣷'
+   local spin='◐◓◑◒'
+   local charwidth=1
+
+   local i=0
+   tput civis # invisible cursor
+
+   while kill -0 $pid 2> /dev/null; do
+      local i=$(((i + $charwidth) % ${#spin}))
+      printf "${cyan}%s${normal}" "${spin:$i:$charwidth}"
+      
+      cursorBack $charwidth
+      sleep $delay
+   done
+
+   tput cnorm
+   wait $pid
+   return $?
+}
+
+check_cmd() { # check if command failed
+   if [ $1 -ne 0 ]; then
+      err_printf "$2"
+      exit 13
+   fi
+}
+
+bad_opt() { # print error to STDOUT and exit with error code '2'
+   echo "${red}$*${normal}" >&2
+   help_print
+   exit 2
+}
+
+need_arg() { # flag that no argument was passed with long flag
+   if [ -z "$OPTARG" ]; then
+      bad_opt "${red}No argument for --$OPT given!${normal}"
+      help_print
+   fi
+}
+
+check_npm_installed() { # check if specified npm package is installed
+   printf "Checking to see if [$1] is installed..."
+   npm list -g | grep -q $1
+}
+
+install_npm_pkg() { # install npm package quietly
+   warn_printf "[$1] not found, installing..."
+   sudo npm install -g $1 &>/dev/null
+   check_cmd $? "[failed to install $1]"
+   success_printf "[$1] installed successfully"
+}
+
+check_installed() { # check if package is installed
+   printf "Checking to see if [$1] is installed..."
+   apt -qq list $1 2>/dev/null | grep -qE "(installed|upgradable)"
+}
+
+install_pkg() { # install package quietly
+   warn_printf "[$1] not found, installing..."
+   sudo apt-get update -qq
+   sudo apt-get install -qq $1 &>/dev/null
+   check_cmd $? "[failed to install $1]"
+   success_printf "[$1] installed successfully"
+}
+
+string_contains() { # check if substring ($1) in string ($2), case insensitve search
+   local _lc=${2,,}
+   [ -z "$1" ] || { [ -z "${_lc##*${1,,}*}" ] && [ -n "$2" ] ;} ;
+}
+
+check_alt() {
+   if [ "X${distro}" == "X${1}" ]; then
+      distro="${2}"
+   fi
+}
+
+candy_machine() {
+   solana config set --url https://api.${network}.solana.com >/dev/null # set solana network
+   check_cmd $? "unable to set Solana network"
+   keyJSON="${HOME}/.config/solana/wallet.json"
+
+   if [ ! -f $keyJSON ]; then # only if keypair doesn't exist
+      if [ "${pubkey}" = "new" ]; then # generate new wallet
+         solana-keygen new --outfile $keyJSON > tmp.txt
+         check_cmd $? "unable to create wallet"
+
+         pubkey=$(cat tmp.txt | grep pubkey | cut -d' ' -f2)
+         passphrase=$(cat tmp.txt | grep -A 1 recover | grep -v recover)
+
+         rm -f tmp.txt # remove file so seed phrase is not saved on system
+         echo "Save this seed phrase and your BIP39 passphrase to recover your new keypair: [${passphrase}]."
+         read -r -s -N 1 -p "Press [Enter] to continue..."
+      else  #import public wallet
+         echo "${orange}Note: You will need your recovery phrase to import wallet. This is required by Solana CLI and will not be saved by this script nor on the system anywhere. The input is silent as well so no one can see the input as you type it in or paste it!${normal}"
+         solana-keygen recover 'prompt://?key=0/0' --outfile $keyJSON
+         check_cmd $? "failed to import wallet."
+      fi
+   fi
+
+   solana config set --keypair $keyJSON >/dev/null # set Solana CLI to use wallet
+   check_cmd $? "unable to set keypair"
+   success_print "set keypair successfully."
+
+   if [ "${network}" = "devnet" ]; then # only airdrop if running on devnet
+      solana airdrop 1 &>/dev/null #airdrop some SOL
+      check_cmd $? "airdrop to wallet failed."
+      success_print "airdropped 1 SOL."
+   fi
+
+   metaplex_dir="${current_dir}/metaplex"
+   assets_dir="${current_dir}/assets"
+   config_dir="${current_dir}/config.json"
+
+   if [ ! -d $assets_dir ]; then # only if directory doesn't exist
+      printf "Creating directory for images..."
+      mkdir $assets_dir &>/dev/null # create directory for assests
+      check_cmd $? "failed to create [$assets_dir}]."
+      success_printf "Directory [${assets_dir}] created successfully."
+   fi
+
+   js_dir="${metaplex_dir}/js"
+   cd $js_dir
+
+   if [ "${subcommand}" == "initial_mint" ]; then # only for initial run
+      printf "Installing node modules..."
+      yarn install --silent 2>>${log_file} & # install required npm modules
+      spinner
+      check_cmd $? "failed to install node modules."
+      success_printf "Node modules installed successfully."
+   fi
+
+   printf "${orange}********************************************************************************************************************************************\nPausing to allow time to upload images and JSON files to [${assets_dir}]. Refer to the README for further\ninformation on properly setting up your images and JSON files.\n********************************************************************************************************************************************\n${normal}"
+   read -r -s -n 1 -p "Press [Enter] to continue..." key
+   echo ""
+
+   cd ${current_dir} # go back to starting location to save mint cache there
+   cm_cli="${js_dir}/packages/cli/src/candy-machine-v2-cli.ts"
+
+   printf "Uploading images for candy machine..."
+   ts-node $cm_cli upload $assets_dir --env ${network} --keypair ${keyJSON} -cp $config_dir 2>>${log_file} 1>/dev/null &
+   spinner
+   check_cmd $? "failed to upload images."
+   success_printf "Image upload successful."
+
+   num_imgs=$((`ls ${assets_dir} | wc -l` / 2 )) # get number of images in assets directory
+   count=0 # used in progress print
+
+   for i in $(seq $num_imgs); do # mint images, one at a time
+      printf "\rMinting operation ongoing, successfully minted [${count}/${num_imgs}]..."
+      ts-node $cm_cli mint_one_token -e ${network} -k ${keyJSON} 2>>${log_file} 1>/dev/null &
+      spinner
+      check_cmd $? "unable to mint image."
+      count=$((count+1))
+   done
+   printf "\r\033[K" # return cursor to beginning and clear
+   success_print "[${count}] images successfully minted."
+
+   printf "Signing tokens..."
+   ts-node $cm_cli sign_all -e ${network} -k ${keyJSON} 2>>${log_file} 1>/dev/null &
+   spinner
+   check_cmd $? "unable to sign tokens."
+   success_printf "Tokens signed successfully."
+
+   echo ""
+   echo "${green}Thanks for using this script! If you found it useful, please consider donating! SOL Wallet: [3hBDhjKKHMXzyyE4wMkgrFwCwo3Qb6mDKMqzFHExDqX1]${normal}"
+}
+
+init_mint() {
+   ## CHECK REQUIRED FLAGS
+   if [ "${network}" = "" ]; then
+      err_print "Fatal: Solana network not set!"
+      warn_print "Pass the [-d] flag for devnet or the [-m] flag for mainnet"
+      init_mint_help_print
+      exit 3
+   fi
+
+   if [ "${pubkey}" = "" ]; then
+      err_print "Fatal: Wallet address required!"
+      warn_print "Pass the [-n] flag to create a new wallet or the [-w] flag followed by your wallet address"
+      init_mint_help_print
+      exit 4
+   fi
+
+   current_dir=$(pwd) # save current working directory
+   log_file="${current_dir}/candy_machine_setup_error.log"
+
+   `sudo apt-update &>/dev/null` # just to prompt for sudo password upfront
+
+   # install pre-requisites
+   if check_installed curl; then
+      success_printf "[curl] found."
+   else
+      install_pkg curl
+   fi
+
+   if check_installed gcc; then
+      success_printf "[gcc] found."
+   else
+      install_pkg gcc
+   fi
+
+   if check_installed g++; then
+      success_printf "[g++] found."
+   else
+      install_pkg g++
+   fi
+
+   if check_installed make; then
+      success_printf "[make] found."
+   else
+      install_pkg make
+   fi
+
+   if check_installed apt-transport-https; then
+      success_printf "[apt-transport-https] found."
+   else
+      install_pkg apt-transport-https
+   fi
+
+   if check_installed lsb-release; then
+      success_printf "[lsb-release] found."
+   else
+      install_pkg lsb-release
+   fi
+
+   if check_installed gnupg; then
+      success_printf "[gnupg] found."
+   else
+      install_pkg gnupg
+   fi
+
+   # check if 'nodejs' is setup, install if not
+   printf "Checking to see if [nodejs] installed..."
+   if node --version &>/dev/null; then
+      success_printf "[nodejs found]"
+   else
+      node_repo="node_14.x" # v16 was giving issues with latest metaplex build
+      distro=$(lsb_release -c -s)
+
+      check_alt "solydxk-9"       "stretch"
+      check_alt "sana"            "jessie"
+      check_alt "kali-rolling"    "bullseye"
+      check_alt "Tyche"           "stretch"
+      check_alt "Nibiru"          "buster"
+      check_alt "Horizon"         "stretch"
+      check_alt "Continuum"       "stretch"
+      check_alt "patito feo"      "buster"
+      check_alt "maya"            "precise"
+      check_alt "qiana"           "trusty"
+      check_alt "rafaela"         "trusty"
+      check_alt "rebecca"         "trusty"
+      check_alt "rosa"            "trusty"
+      check_alt "sarah"           "xenial"
+      check_alt "serena"          "xenial"
+      check_alt "sonya"           "xenial"
+      check_alt "sylvia"          "xenial"
+      check_alt "tara"            "bionic"
+      check_alt "tessa"           "bionic"
+      check_alt "tina"            "bionic"
+      check_alt "tricia"          "bionic"
+      check_alt "ulyana"          "focal"
+      check_alt "ulyssa"          "focal"
+      check_alt "uma"             "focal"
+      check_alt "betsy"           "jessie"
+      check_alt "cindy"           "stretch"
+      check_alt "debbie"          "buster"
+      check_alt "luna"            "precise"
+      check_alt "freya"           "trusty"
+      check_alt "loki"            "xenial"
+      check_alt "juno"            "bionic"
+      check_alt "hera"            "bionic"
+      check_alt "odin"            "focal"
+      check_alt "toutatis"        "precise"
+      check_alt "belenos"         "trusty"
+      check_alt "flidas"          "xenial"
+      check_alt "etiona"          "bionic"
+      check_alt "lugalbanda"      "xenial"
+      check_alt "anokha"          "wheezy"
+      check_alt "anoop"           "jessie"
+      check_alt "drishti"         "stretch"
+      check_alt "unnati"          "buster"
+      check_alt "bunsen-hydrogen" "jessie"
+      check_alt "helium"          "stretch"
+      check_alt "lithium"         "buster"
+      check_alt "chromodoris"     "jessie"
+      check_alt "green"           "sid"
+      check_alt "amber"           "buster"
+      check_alt "jessie"          "jessie"
+      check_alt "ascii"           "stretch"
+      check_alt "beowulf"         "buster"
+      check_alt "ceres"           "sid"
+      check_alt "panda"           "sid"
+      check_alt "unstable"        "sid"
+      check_alt "stable"          "buster"
+      check_alt "onyedi"          "stretch"
+      check_alt "lemur-3"         "stretch"
+      check_alt "orel"            "stretch"
+      check_alt "dolcetto"        "stretch"
+
+      if [ -f "/etc/apt/sources.list.d/chris-lea-node_js-$distro.list" ]; then # remove Launchpad PPA repo, if found
+         $(sudo add-apt-repository -y -r ppa:chris-lea/node.js)
+         $(sudo rm -f /etc/apt/sources.list.d/chris-lea-node_js-${distro}.list)
+      fi
+
+      keyring='/usr/share/keyrings'
+      local_node_key="$keyring/nodesource.gpg"
+
+      curl -s "https://deb.nodesource.com/gpgkey/nodesource.gpg.key" | gpg --dearmor | sudo tee $local_node_key >/dev/null
+
+      echo "deb [signed-by=$local_node_key] https://deb.nodesource.com/${node_repo} ${distro} main" | sudo tee /etc/apt/sources.list.d/nodesource.list &>/dev/null
+      echo "deb-src [signed-by=$local_node_key] https://deb.nodesource.com/${node_repo} ${distro} main" | sudo tee -a /etc/apt/sources.list.d/nodesource.list &>/dev/null
+      install_pkg nodejs
+   fi
+
+   # check if 'yarn' is installed, install if not
+   if check_npm_installed yarn; then
+      success_printf "[yarn] found."
+   else
+      install_npm_pkg yarn
+   fi
+
+   # check if 'git' is installed, install if not
+   if check_installed git; then
+      success_printf "[git] found."
+   else
+      install_pkg git
+   fi
+
+   # clone metaplex repo
+   if [ ! -d "${current_dir}/metaplex" ]; then # only clone if not already existing
+      printf "cloning [metaplex] repo..."
+      git clone https://github.com/metaplex-foundation/metaplex.git &>/dev/null &
+      spinner
+      check_cmd $? "failed to clone [metaplex] repo."
+      success_printf "[metaplex] repo cloned successfully."
+   fi
+
+   # check if 'ts-node' installed, install if not
+   if check_npm_installed ts-node; then
+      success_printf "[ts-node] found."
+   else
+      install_npm_pkg ts-node
+   fi
+
+   # check if solana is installed, install if not
+   printf "Checking to see if [solana] installed..."
+   if solana --version &>/dev/null; then
+      success_printf "[solana] found."
+   else
+      warn_printf "[solana] not found, installing..."
+      sh -c "$(curl -sSfL https://release.solana.com/v1.8.0/install)" &>/dev/null &
+      spinner
+      check_cmd $? "failed to install [solana]"
+      . ~/.profile # source .profile so PATH updates in current session
+      success_printf "[solana] installed successfully."
+   fi
+
+   candy_machine
+
+   exit 0 # normal exit
+}
+
+mint() {
+   if [ ! -f "${HOME}/.config/solana/wallet.json" ]; then
+      err_print "Solana keypair not found! Please run 'initial_mint' to setup environment properly!"
+      exit 14
+   fi
+
+   if [ "${network}" = "" ]; then
+      err_print "Fatal: Solana network not set!"
+      warn_print "Pass the [-d] flag for devnet or the [-m] flag for mainnet"
+      mint_more_help_print
+      exit 3
+   fi
+
+   current_dir=$(pwd) # save current working directory
+   log_file="${current_dir}/candy_machine_setup_error.log"
+
+   rm -rf "${current_dir}/.cache" &>/dev/null
+
+   candy_machine
+
+   exit 0
+}
+
+## USER INPUT
+while getopts ":h-:" OPT; do
+   if [ "$OPT" = "-" ]; then  # long option support
+      OPT="${OPTARG%%=*}"     # extract long option name
+      OPTARG="${OPTARG#$OPT}" # extract long option argument (may be empty)
+      OPTARG="${OPTARG#=}"    # if long option argument, remove assigning '='
+   fi
+
+   case "$OPT" in
+      h | help )        help_print; exit 0 ;;               # print help
+      ??* )             bad_opt "Unknown option --$OPT" ;;  # bad long option
+      ? )               bad_opt "Unknown option" ;;         # bad short option
+   esac
+done
+shift $((OPTIND-1)) # remove parsed options and args from $@ list
+
+subcommand=$1; shift # remove script name from arg list
+case "$subcommand" in
+   initial_mint)
+      while getopts ":dhmnw:-:" opt; do
+         if [ "$OPT" = "-" ]; then   # long option support
+               OPT="${OPTARG%%=*}"     # extract long option name
+               OPTARG="${OPTARG#$OPT}" # extract long option argument (may be empty)
+               OPTARG="${OPTARG#=}"    # if long option argument, remove assigning '='
+         fi
+
+         case ${opt} in
+               d | devnet )      network='devnet' ;;                 # set devnet
+               h | help )        initial_mint_help_print; exit 0;;   # print help
+               m | mainnet )     network='mainnet-beta' ;;           # set mainnet
+               n | newwallet )   pubkey='new' ;;                     # generate new wallet
+               w | wallet )      pubkey="${OPTARG}" ;;               # set public wallet key address
+               ??* )             bad_opt "Unknown option --$OPT" ;;  # bad long option
+               ? )               bad_opt "Unkown option" ;;          # bad short option
+         esac
+      done
+      shift $((OPTIND-1))
+      ;;
+   mint_more)
+      while getopts ":dhm-:" opt; do
+         if [ "$OPT" = "-" ]; then   # long option support
+               OPT="${OPTARG%%=*}"     # extract long option name
+               OPTARG="${OPTARG#$OPT}" # extract long option argument (may be empty)
+               OPTARG="${OPTARG#=}"    # if long option argument, remove assigning '='
+         fi
+
+         case ${opt} in
+               d | devnet )      network='devnet' ;;                 # set devnet
+               h | help )        mint_more_help_print; exit 0;;      # print help
+               m | mainnet )     network='mainnet-beta' ;;           # set mainnet
+               ??* )             bad_opt "Unknown option --$OPT" ;;  # bad long option
+               ? )               bad_opt "Unknown option" ;;         # bad short option
+         esac
+      done
+      shift $((OPTIND-1))
+      ;;
+esac
+
+if [ "${subcommand}" == "" ]; then
+   err_print "Fatal: no command passed!"
+   warn_print "Pass 'initial_mint' or 'mint_more' plus any required options"
+   help_print
+   exit 1
+elif [ "${subcommand}" == "initial_mint" ]; then
+   init_mint
+elif [ "${subcommand}" == "mint_more" ]; then
+   mint
+else
+   err_print "Fatal: unknonw command!"
+   help_print
+   exit 1
+fi
