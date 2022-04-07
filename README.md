@@ -143,8 +143,11 @@ The script will pause for you to get your images in the proper directory with as
             - ** Notice the comma between code blocks, similar to the attributes section above **
 
 ## Note
-If you are sure that the required scripts are already installed and still experience script not found errors you can simply comment line 173 and 185 with "#"s and proceed. Any contributions to the script are also welcome!
+- If you are sure that the required scripts are already installed and still experience script not found errors you can simply comment line 173 and 185 with "#"s and proceed. Any contributions to the script are also welcome!
 You can identify the required scripts in the code itself.
+
+## Other Known Issues
+- Do not place the script in a path that contain "spaces" in the name. It may cause errors when installing modules via the script.
 
 ## Examples
 #### run initial configuration and mint
