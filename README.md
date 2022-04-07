@@ -4,8 +4,9 @@
 Script to setup, upload and batch mint all the NFTs at once on Solana blockchain using Metaplex's candy machine. The script will build up everything from scratch, except for your images, of course! Any required packages or modules will be automatically installed if not found on the system so you don't have to worry about anything excpet creating awesome images.
 
 # Special Thanks
-Special thanks to [jrod091] (https://github.com/jrod091/) for the [base repository] (https://github.com/jrod091/candy-machine-setup) which I grabbed the base and did some changes to develop this new script.
-And yes, this supports the candy machine v2 update!
+Special thanks to <a href="https://github.com/jrod091/">jrod091</a> for the <a href"https://github.com/jrod091/candy-machine-setup">base repository</a> which I grabbed the base code and did some changes to develop this new script.
+
+And yes, this script supports the candy machine v2 update!
 
 ## Usage
 ```
