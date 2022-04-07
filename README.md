@@ -70,6 +70,7 @@ Options:
 
 ## Image Setup
 The script will pause for you to get your images in the proper directory with associated JSON files before continuing. The below are things you should keep in mind when adding your images.
+- Make sure to replace the assets folder with your assets. You can find out more about the metadata layout by 0.json (sample) metadata file. Also, you can find out more about assets and metadata in this <a href="https://docs.metaplex.com/candy-machine-v2/preparing-assets">documentation.</a>
 - The script creates an `assets` directory in the same directory that the script runs from. This is the directory you should drop all PNG and JSON files for minting.
 - Each PNG file requires a corresponding JSON file.
 - Filenames are important. The files need to named as simply a number, starting at `0`. For example, if you have 3 images, you need to have the following files in the `assests` directory:
