@@ -24,6 +24,11 @@ You can run 'candy_machine_setup <command> -h/--help to see help for specific co
 
 - `-h` or `--help`: This flag is used to print the usage of the script
 
+## Configuration Setup
+- The repository already includes a dummy configuration file with minimum requirements. This should be edited with the settings of your NFT collection and placed in the same directory as the script.
+- The price, the number of the NFTs, owner wallet address, and information goes in this config.json file.
+- To find out more about how to edit and set up your config.json, check out this <a href="https://docs.metaplex.com/candy-machine-v2/configuration">documentation.</a>
+
 ### Initial Mint
 The `initial_mint` command will ensure that your environment is properly setup with all the modules and libraries required to mint images. It will also mint your initial set of images.
 
