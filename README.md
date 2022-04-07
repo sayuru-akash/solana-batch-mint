@@ -10,7 +10,7 @@ And yes, this script supports the candy machine v2 update!
 
 ## Usage
 ```
-Usage: candy_machine_setup <command> <options>
+Usage: solana_batch_mint <command> <options>
 
 Commands:
    initial_mint   setup candy machine and mint images
@@ -19,7 +19,7 @@ Commands:
 Options:
    -h, --help              print this help message
 
-You can run 'candy_machine_setup <command> -h/--help to see help for specific command.
+You can run 'solana_batch_mint <command> -h/--help to see help for specific command.
 ```
 
 - `-h` or `--help`: This flag is used to print the usage of the script
@@ -33,7 +33,7 @@ You can run 'candy_machine_setup <command> -h/--help to see help for specific co
 The `initial_mint` command will ensure that your environment is properly setup with all the modules and libraries required to mint images. It will also mint your initial set of images.
 
 ```
-Usage: candy_machine_setup initial_mint <options>
+Usage: solana_batch_mint initial_mint <options>
 
 Options:
    -d, --devnet            set 'devnet' as network
